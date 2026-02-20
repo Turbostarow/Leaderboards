@@ -137,7 +137,7 @@ const playerMatch = body.match(/^@?(.+?)\s+(\S+)\s+(.+)$/);
   if (tierCurrent < 1 || tierCurrent > 3) { console.warn(`[parser] MR: tierCurrent ${tierCurrent} out of range 1-3`); return null; }
   if (tierPeak    < 1 || tierPeak    > 3) { console.warn(`[parser] MR: tierPeak ${tierPeak} out of range 1-3`);    return null; }
 
-  return { game: 'MARVEL_RIVALS', playerId, role, rankCurrent, tierCurrent, rankPeak, tierPeak, date: parseDate(dateRaw), dateRaw: dateRaw.trim() };
+  return { game: 'MARVEL_RIVALS', playerName, role, rankCurrent, tierCurrent, rankPeak, tierPeak, date: parseDate(dateRaw), dateRaw: dateRaw.trim() };
 }
 
 // ── Overwatch ─────────────────────────────────────────────────

@@ -137,7 +137,7 @@ function renderRow(p, game, pos) {
 
   if (game === 'MARVEL_RIVALS') {
     return (
-      `${medal} **@${p.playerId}** • ${p.role} • ` +
+      `${medal} **@${p.playerName}** • ${p.role} • ` +
       `${rankEmoji(p.rankCurrent)} ${p.rankCurrent} ${p.tierCurrent} • ` +
       `Peak: ${rankEmoji(p.rankPeak)} ${p.rankPeak} ${p.tierPeak} • ` +
       `*${time}*`
@@ -148,7 +148,7 @@ function renderRow(p, game, pos) {
     const curTier  = p.rankCurrent === 'Top 500' ? `#${p.tierCurrent}` : `${p.tierCurrent}`;
     const peakTier = p.rankPeak    === 'Top 500' ? `#${p.tierPeak}`    : `${p.tierPeak}`;
     return (
-      `${medal} **@${p.playerId}** • ${p.role} • ` +
+      `${medal} **@${p.playerName}** • ${p.role} • ` +
       `${rankEmoji(p.rankCurrent)} ${p.rankCurrent} ${curTier} (${p.currentValue} SR) • ` +
       `Peak: ${rankEmoji(p.rankPeak)} ${p.rankPeak} ${peakTier} (${p.peakValue} SR) • ` +
       `*${time}*`
@@ -157,11 +157,11 @@ function renderRow(p, game, pos) {
 
   if (game === 'DEADLOCK') {
     return (
-      `${medal} **@${p.playerId}** • ${p.hero} • ` +
+      `${medal} **@${p.playerName}** • ${p.hero} • ` +
       `${rankEmoji(p.rankCurrent)} ${p.rankCurrent} ${p.tierCurrent} (${p.currentValue} pts) • ` +
       `*${time}*`
     );
   }
 
-  return `${medal} **@${p.playerId}** • *${time}*`;
+  return `${medal} **@${p.playerName}** • *${time}*`;
 }
