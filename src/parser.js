@@ -260,3 +260,50 @@ export function parseMessage(content) {
   if (/^LB_UPDATE_DL:/i.test(t)) return parseDeadlock(t);
   return null;
 }
+
+// ── Delete commands ───────────────────────────────────────────
+// LB_DELETE_MR: @PlayerName  or  LB_DELETE_MR: <@discordId>
+// LB_DELETE_OW: @PlayerName  or  LB_DELETE_OW: <@discordId>
+// LB_DELETE_DL: @PlayerName  or  LB_DELETE_DL: <@discordId>
+//
+// Returns: { type:'DELETE', game, playerName, discordId, issuerId }
+// issuerId = Discord ID of the staff member who ran the command
+
+export function parseDeleteCommand(content, issuerId = null) {
+  if (typeof content !== 'string') return null;
+  const t = content.trim();
+
+  let game = null;
+  if (/^LB_DELETE_MR:/i.test(t)) game = 'MARVEL_RIVALS';
+  else if (/^LB_DELETE_OW:/i.test(t)) game = 'OVERWATCH';
+  else if (/^LB_DELETE_DL:/i.test(t)) game = 'DEADLOCK';
+  else return null;
+
+  const raw       = t.replace(/^LB_DELETE_(?:MR|OW|DL):\s*/i, '').trim();
+  const discordId = extractDiscordId(raw);
+  const body      = cleanBody(raw);
+
+  // Accept either <@id> or @PlainName or just PlainName
+  const playerName = sanitise(body.replace(/^@/, '').trim());
+
+  if (!playerName && !discordId) {
+    console.warn(`[parser] DELETE ${game}: no player name or Discord ID found in: "${raw}"`);
+    return null;
+  }
+
+  return {
+    type:       'DELETE',
+    game,
+    // If discordId present, use it as the key (matches how updates are stored)
+    playerName: discordId ? discordId : playerName,
+    discordId,
+    issuerId,   // who ran the command — logged and noted in pinned state
+  };
+}
+
+// Re-export unified parseMessage so it also detects DELETE commands
+export function parseAnyMessage(content, issuerId = null) {
+  const update = parseMessage(content);
+  if (update) return update;
+  return parseDeleteCommand(content, issuerId);
+}

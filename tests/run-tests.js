@@ -1,17 +1,19 @@
 // ============================================================
-// tests/run-tests.js — Test runner (no external deps)
+// tests/run-tests.js
 // ============================================================
 
 import { runParserTests }   from './parser.test.js';
 import { runRendererTests } from './renderer.test.js';
 import { runStorageTests }  from './storage.test.js';
 import { runSortingTests }  from './sorting.test.js';
+import { runDeleteTests }   from './delete.test.js';
 
 const suites = [
   { name: 'Parser',   fn: runParserTests },
   { name: 'Renderer', fn: runRendererTests },
   { name: 'Storage',  fn: runStorageTests },
   { name: 'Sorting',  fn: runSortingTests },
+  { name: 'Delete',   fn: runDeleteTests },
 ];
 
 let totalPass = 0, totalFail = 0;

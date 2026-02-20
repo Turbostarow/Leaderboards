@@ -80,3 +80,21 @@ function serialise(data) {
     date: data.date instanceof Date ? data.date.toISOString() : new Date().toISOString(),
   };
 }
+
+/**
+ * Remove a player from the state array by playerName or discordId.
+ * Matching is case-insensitive on playerName; discordId takes priority.
+ * Returns the removed player object, or null if not found.
+ */
+export function deletePlayer(players, { playerName, discordId }) {
+  const idx = players.findIndex(p => {
+    if (discordId && p.discordId) return p.discordId === discordId;
+    return p.playerName.toLowerCase() === playerName.toLowerCase();
+  });
+
+  if (idx === -1) return null;
+
+  const [removed] = players.splice(idx, 1);
+  console.log(`[storage] Deleted player: ${removed.playerName} (discordId: ${removed.discordId ?? 'none'})`);
+  return removed;
+}

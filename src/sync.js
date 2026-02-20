@@ -1,6 +1,6 @@
 // ============================================================
 // src/sync.js — Main orchestrator
-// Flow: login → fetch msgs → parse → upsert → delete → render → push
+// Flow: login → fetch msgs → parse → upsert/delete → delete source msg → render → push
 // State stored as pinned msgs in #lb-update (never in public channels)
 // ============================================================
 
@@ -11,8 +11,8 @@ import {
   postWebhookMessage, editWebhookMessage,
   sleep,
 } from './discord.js';
-import { parseMessage }                              from './parser.js';
-import { decodeState, encodeState, upsertPlayer }    from './storage.js';
+import { parseMessage, parseAnyMessage }                         from './parser.js';
+import { decodeState, encodeState, upsertPlayer, deletePlayer }  from './storage.js';
 import { renderLeaderboard, sortMarvelRivals, sortOverwatch, sortDeadlock } from './renderer.js';
 
 // ── Config ────────────────────────────────────────────────────
@@ -62,54 +62,75 @@ async function main() {
   try {
     await loginBot(requireEnv('DISCORD_TOKEN'));
 
-    // ── 1. Fetch messages from listening channel ──────────────
+    // 1. Fetch messages
     const messages = await fetchMessages(LISTENING_CHANNEL);
     if (messages.length === 0) {
       console.log('[sync] No messages found — nothing to do.');
       return;
     }
 
-    // ── 2. Parse & group by game ──────────────────────────────
-    const byGame   = { MARVEL_RIVALS: [], OVERWATCH: [], DEADLOCK: [] };
-    let   skipped  = 0;
+    // 2. Parse & group — each msg carries its Discord author ID so deletes are auditable
+    const byGame = {
+      MARVEL_RIVALS: { updates: [], deletes: [] },
+      OVERWATCH:     { updates: [], deletes: [] },
+      DEADLOCK:      { updates: [], deletes: [] },
+    };
+    let skipped = 0;
 
     for (const msg of messages) {
-      const parsed = parseMessage(msg.content);
-      if (parsed) {
-        byGame[parsed.game].push({ msg, data: parsed });
-      } else {
+      // Pass the author's Discord ID so delete commands know who issued them
+      const parsed = parseAnyMessage(msg.content, msg.author?.id ?? null);
+
+      if (!parsed) {
         skipped++;
-        const preview  = msg.content.slice(0, 100).replace(/\n/g, '↵');
-        const hasPrefix = /^LB_UPDATE_(MR|OW|DL):/i.test(msg.content.trim());
+        const preview   = msg.content.slice(0, 100).replace(/\n/g, '↵');
+        const hasPrefix = /^LB_(UPDATE|DELETE)_(MR|OW|DL):/i.test(msg.content.trim());
         if (hasPrefix) {
           console.warn(`[sync] ⚠️  PARSE FAILED (has prefix but validation failed):`);
           console.warn(`         "${preview}"`);
         } else {
           console.log(`[sync] Skipping non-LB message: "${preview}"`);
         }
+        continue;
+      }
+
+      if (parsed.type === 'DELETE') {
+        byGame[parsed.game].deletes.push({ msg, data: parsed });
+      } else {
+        byGame[parsed.game].updates.push({ msg, data: parsed });
       }
     }
 
+    const totalUpdates = Object.values(byGame).reduce((n, g) => n + g.updates.length, 0);
+    const totalDeletes = Object.values(byGame).reduce((n, g) => n + g.deletes.length, 0);
     console.log(
-      `[sync] Grouped — MR: ${byGame.MARVEL_RIVALS.length}, ` +
-      `OW: ${byGame.OVERWATCH.length}, DL: ${byGame.DEADLOCK.length}, ` +
+      `[sync] Grouped — ` +
+      `MR: ${byGame.MARVEL_RIVALS.updates.length}u/${byGame.MARVEL_RIVALS.deletes.length}d, ` +
+      `OW: ${byGame.OVERWATCH.updates.length}u/${byGame.OVERWATCH.deletes.length}d, ` +
+      `DL: ${byGame.DEADLOCK.updates.length}u/${byGame.DEADLOCK.deletes.length}d, ` +
       `Skipped: ${skipped}`
     );
 
-    // ── 3. Process each game ──────────────────────────────────
+    // 3. Process each game
     const results = {};
-    for (const [game, updates] of Object.entries(byGame)) {
-      if (updates.length === 0) { console.log(`[sync] ${game}: no updates.`); continue; }
-      results[game] = await processGame(game, updates);
+    for (const [game, { updates, deletes }] of Object.entries(byGame)) {
+      if (updates.length === 0 && deletes.length === 0) {
+        console.log(`[sync] ${game}: no updates or deletes.`);
+        continue;
+      }
+      results[game] = await processGame(game, updates, deletes);
       await sleep(API_DELAY);
     }
 
-    // ── 4. Summary ────────────────────────────────────────────
+    // 4. Summary
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log('═══════════════════════════════════════');
     console.log(`  Sync complete in ${elapsed}s`);
     for (const [game, r] of Object.entries(results)) {
-      console.log(`  ${game}: ${r.processed} processed, ${r.deleted} deleted, ${r.errors} errors`);
+      console.log(
+        `  ${game}: +${r.inserted} inserted, ~${r.updated} updated, ` +
+        `-${r.deleted} removed, ${r.sourceDeleted} msgs deleted, ${r.errors} errors`
+      );
     }
     console.log('═══════════════════════════════════════');
 
@@ -120,11 +141,11 @@ async function main() {
 
 // ── Per-game processing ───────────────────────────────────────
 
-async function processGame(game, updates) {
+async function processGame(game, updates, deletes) {
   const cfg   = GAMES[game];
-  const stats = { processed: 0, deleted: 0, errors: 0 };
+  const stats = { inserted: 0, updated: 0, deleted: 0, sourceDeleted: 0, errors: 0 };
 
-  console.log(`\n[sync] ── ${game} (${updates.length} update(s)) ──`);
+  console.log(`\n[sync] ── ${game} (${updates.length} update(s), ${deletes.length} delete(s)) ──`);
 
   // Load state from pinned message in #lb-update
   let stateMsg = null;
@@ -137,28 +158,57 @@ async function processGame(game, updates) {
   const state = decodeState(stateMsg?.content ?? null);
   console.log(`[sync] ${game}: ${state.players.length} existing player(s) in state`);
 
-  // Apply updates + delete source messages
+  // Process updates first
   for (const { msg, data } of updates) {
     try {
+      const before = state.players.length;
       const changed = upsertPlayer(state.players, data);
-      if (changed) stats.processed++;
+      if (changed) {
+        state.players.length > before ? stats.inserted++ : stats.updated++;
+      }
 
       await sleep(API_DELAY);
-      const deleted = await deleteMessage(msg);
-      if (deleted) {
-        console.log(`[sync] ✓ Deleted source message ${msg.id}`);
-        stats.deleted++;
+      if (await deleteMessage(msg)) {
+        console.log(`[sync] ✓ Deleted update source message ${msg.id}`);
+        stats.sourceDeleted++;
       } else {
-        console.error(`[sync] ✗ Could not delete ${msg.id}`);
-        stats.errors++;
+        console.error(`[sync] ✗ Could not delete ${msg.id}`); stats.errors++;
       }
     } catch (err) {
-      console.error(`[sync] ${game}: error on message ${msg.id}:`, err.message);
-      stats.errors++;
+      console.error(`[sync] ${game}: error on update ${msg.id}:`, err.message); stats.errors++;
     }
   }
 
-  // Sort + render (clean display — no JSON, no state bleed)
+  // Process deletes
+  for (const { msg, data } of deletes) {
+    try {
+      const issuerTag = data.issuerId ? `<@${data.issuerId}>` : 'unknown staff';
+      const removed   = deletePlayer(state.players, data);
+
+      if (removed) {
+        const removedTag = removed.discordId ? `<@${removed.discordId}>` : removed.playerName;
+        console.log(`[sync] ${game}: removed ${removedTag} from leaderboard (issued by ${issuerTag})`);
+        stats.deleted++;
+      } else {
+        console.warn(
+          `[sync] ${game}: DELETE target not found — ` +
+          `playerName:"${data.playerName}" discordId:"${data.discordId}" (issued by ${issuerTag})`
+        );
+      }
+
+      await sleep(API_DELAY);
+      if (await deleteMessage(msg)) {
+        console.log(`[sync] ✓ Deleted delete-command source message ${msg.id}`);
+        stats.sourceDeleted++;
+      } else {
+        console.error(`[sync] ✗ Could not delete ${msg.id}`); stats.errors++;
+      }
+    } catch (err) {
+      console.error(`[sync] ${game}: error on delete command ${msg.id}:`, err.message); stats.errors++;
+    }
+  }
+
+  // Sort + render
   const sorted   = cfg.sortFn(state.players);
   const rendered = renderLeaderboard(sorted, game);
 
@@ -176,8 +226,7 @@ async function processGame(game, updates) {
       console.log(`[sync] ════════════════════════════════════\n`);
     }
   } catch (err) {
-    console.error(`[sync] ${game}: failed to update leaderboard message:`, err.message);
-    stats.errors++;
+    console.error(`[sync] ${game}: failed to update leaderboard:`, err.message); stats.errors++;
   }
 
   // Save updated state as pinned message in #lb-update
@@ -190,11 +239,13 @@ async function processGame(game, updates) {
       console.log(`[sync] ${game}: created pinned state message in #lb-update`);
     }
   } catch (err) {
-    console.error(`[sync] ${game}: failed to save state:`, err.message);
-    stats.errors++;
+    console.error(`[sync] ${game}: failed to save state:`, err.message); stats.errors++;
   }
 
-  console.log(`[sync] ${game}: done — processed:${stats.processed} deleted:${stats.deleted} errors:${stats.errors}`);
+  console.log(
+    `[sync] ${game}: done — +${stats.inserted} ins, ~${stats.updated} upd, ` +
+    `-${stats.deleted} del, ${stats.sourceDeleted} msgs cleaned, ${stats.errors} errors`
+  );
   return stats;
 }
 
