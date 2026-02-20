@@ -39,8 +39,8 @@ export function rankEmoji(name) {
 // ── Relative timestamps ───────────────────────────────────────
 
 export function relativeTime(date) {
-  const d   = date instanceof Date ? date : new Date(date);
-  const ms  = Date.now() - d.getTime();
+  const d  = date instanceof Date ? date : new Date(date);
+  const ms = Date.now() - d.getTime();
   if (ms < 0) return 'just now';
 
   const s  = Math.floor(ms / 1000);
@@ -61,23 +61,28 @@ export function relativeTime(date) {
   return `${y} year${y === 1 ? '' : 's'} ago`;
 }
 
+// ── Player mention ────────────────────────────────────────────
+
+/**
+ * Returns a Discord ping (<@ID>) if a discordId is stored,
+ * otherwise falls back to plain bold @Name.
+ */
+function mention(p) {
+  return p.discordId ? `<@${p.discordId}>` : `**@${p.playerName}**`;
+}
+
 // ── Sorting ───────────────────────────────────────────────────
 
 export function sortMarvelRivals(players) {
   return [...players].sort((a, b) => {
-    // 1. Higher rank index wins
     const rd = rankIndex(b.rankCurrent, MR_RANKS) - rankIndex(a.rankCurrent, MR_RANKS);
     if (rd !== 0) return rd;
-    // 2. Lower tier wins (1 > 2 > 3)
     const td = a.tierCurrent - b.tierCurrent;
     if (td !== 0) return td;
-    // 3. Better peak rank
     const pd = rankIndex(b.rankPeak, MR_RANKS) - rankIndex(a.rankPeak, MR_RANKS);
     if (pd !== 0) return pd;
-    // 4. Lower peak tier
     const ptd = a.tierPeak - b.tierPeak;
     if (ptd !== 0) return ptd;
-    // 5. Most recent update
     return new Date(b.date) - new Date(a.date);
   });
 }
@@ -86,7 +91,6 @@ export function sortOverwatch(players) {
   return [...players].sort((a, b) => {
     const rd = rankIndex(b.rankCurrent, OW_RANKS) - rankIndex(a.rankCurrent, OW_RANKS);
     if (rd !== 0) return rd;
-    // Top 500: lower number = better
     const td = a.tierCurrent - b.tierCurrent;
     if (td !== 0) return td;
     const pd = rankIndex(b.rankPeak, OW_RANKS) - rankIndex(a.rankPeak, OW_RANKS);
@@ -101,11 +105,9 @@ export function sortDeadlock(players) {
   return [...players].sort((a, b) => {
     const rd = rankIndex(b.rankCurrent, DL_RANKS) - rankIndex(a.rankCurrent, DL_RANKS);
     if (rd !== 0) return rd;
-    // Higher tier wins for Deadlock (tier 6 > tier 1)
-    const td = b.tierCurrent - a.tierCurrent;
+    const td = b.tierCurrent - a.tierCurrent;   // higher tier = better in DL
     if (td !== 0) return td;
-    // Lower value wins
-    const vd = a.currentValue - b.currentValue;
+    const vd = a.currentValue - b.currentValue; // lower value = better
     if (vd !== 0) return vd;
     return new Date(b.date) - new Date(a.date);
   });
@@ -134,10 +136,11 @@ export function renderLeaderboard(players, game) {
 function renderRow(p, game, pos) {
   const medal = pos <= 3 ? ['🥇', '🥈', '🥉'][pos - 1] : `\`${String(pos).padStart(2)}\``;
   const time  = relativeTime(p.date);
+  const tag   = mention(p);  // <@ID> if available, else **@Name**
 
   if (game === 'MARVEL_RIVALS') {
     return (
-      `${medal} **@${p.playerId}** • ${p.role} • ` +
+      `${medal} ${tag} • ${p.role} • ` +
       `${rankEmoji(p.rankCurrent)} ${p.rankCurrent} ${p.tierCurrent} • ` +
       `Peak: ${rankEmoji(p.rankPeak)} ${p.rankPeak} ${p.tierPeak} • ` +
       `*${time}*`
@@ -148,7 +151,7 @@ function renderRow(p, game, pos) {
     const curTier  = p.rankCurrent === 'Top 500' ? `#${p.tierCurrent}` : `${p.tierCurrent}`;
     const peakTier = p.rankPeak    === 'Top 500' ? `#${p.tierPeak}`    : `${p.tierPeak}`;
     return (
-      `${medal} **@${p.playerId}** • ${p.role} • ` +
+      `${medal} ${tag} • ${p.role} • ` +
       `${rankEmoji(p.rankCurrent)} ${p.rankCurrent} ${curTier} (${p.currentValue} SR) • ` +
       `Peak: ${rankEmoji(p.rankPeak)} ${p.rankPeak} ${peakTier} (${p.peakValue} SR) • ` +
       `*${time}*`
@@ -157,11 +160,11 @@ function renderRow(p, game, pos) {
 
   if (game === 'DEADLOCK') {
     return (
-      `${medal} **@${p.playerId}** • ${p.hero} • ` +
+      `${medal} ${tag} • ${p.hero} • ` +
       `${rankEmoji(p.rankCurrent)} ${p.rankCurrent} ${p.tierCurrent} (${p.currentValue} pts) • ` +
       `*${time}*`
     );
   }
 
-  return `${medal} **@${p.playerId}** • *${time}*`;
+  return `${medal} ${tag} • *${time}*`;
 }
