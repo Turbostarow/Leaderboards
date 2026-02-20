@@ -1,0 +1,75 @@
+name: Leaderboard Sync
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # Every 15 minutes
+  workflow_dispatch:           # Manual trigger from GitHub UI
+    inputs:
+      validate_only:
+        description: 'Only run secrets validation (skip sync)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+
+  # ── Job 1: Unit tests (always runs) ──────────────────────────
+  test:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: npm test
+
+  # ── Job 2: Secrets validation (manual trigger only) ───────────
+  validate:
+    name: 🔍 Validate Secrets
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.validate_only == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: npm run test:secrets
+        env:
+          DISCORD_TOKEN:               ${{ secrets.DISCORD_TOKEN }}
+          LISTENING_CHANNEL_ID:        ${{ secrets.LISTENING_CHANNEL_ID }}
+          MARVEL_RIVALS_WEBHOOK_URL:   ${{ secrets.MARVEL_RIVALS_WEBHOOK_URL }}
+          OVERWATCH_WEBHOOK_URL:       ${{ secrets.OVERWATCH_WEBHOOK_URL }}
+          DEADLOCK_WEBHOOK_URL:        ${{ secrets.DEADLOCK_WEBHOOK_URL }}
+          MARVEL_RIVALS_MESSAGE_ID:    ${{ secrets.MARVEL_RIVALS_MESSAGE_ID }}
+          OVERWATCH_MESSAGE_ID:        ${{ secrets.OVERWATCH_MESSAGE_ID }}
+          DEADLOCK_MESSAGE_ID:         ${{ secrets.DEADLOCK_MESSAGE_ID }}
+
+  # ── Job 3: Sync leaderboards ──────────────────────────────────
+  sync:
+    name: 🔄 Sync Leaderboards
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validate_only != 'true' }}
+    concurrency:
+      group: leaderboard-sync
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - name: 🔄 Run sync
+        run: npm run sync
+        timeout-minutes: 5
+        env:
+          DISCORD_TOKEN:               ${{ secrets.DISCORD_TOKEN }}
+          LISTENING_CHANNEL_ID:        ${{ secrets.LISTENING_CHANNEL_ID }}
+          MARVEL_RIVALS_WEBHOOK_URL:   ${{ secrets.MARVEL_RIVALS_WEBHOOK_URL }}
+          OVERWATCH_WEBHOOK_URL:       ${{ secrets.OVERWATCH_WEBHOOK_URL }}
+          DEADLOCK_WEBHOOK_URL:        ${{ secrets.DEADLOCK_WEBHOOK_URL }}
+          MARVEL_RIVALS_MESSAGE_ID:    ${{ secrets.MARVEL_RIVALS_MESSAGE_ID }}
+          OVERWATCH_MESSAGE_ID:        ${{ secrets.OVERWATCH_MESSAGE_ID }}
+          DEADLOCK_MESSAGE_ID:         ${{ secrets.DEADLOCK_MESSAGE_ID }}
+          FETCH_LIMIT:                 ${{ secrets.FETCH_LIMIT }}
+          API_DELAY_MS:                ${{ secrets.API_DELAY_MS }}
