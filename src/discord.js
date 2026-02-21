@@ -116,8 +116,8 @@ function buildBody(payload) {
     const s = payload.length <= 2000 ? payload : payload.slice(0, 1985) + '\n…*(truncated)*';
     return JSON.stringify({ content: s });
   }
-  // Embed payload — validate total size stays under Discord's 6000 char limit
-  return JSON.stringify(payload);
+  // Embed payload — explicitly clear any old plain-text content on the message
+  return JSON.stringify({ content: "", ...payload });
 }
 
 export async function postWebhookMessage(webhookUrl, payload) {
