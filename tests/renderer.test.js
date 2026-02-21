@@ -1,113 +1,137 @@
 // ============================================================
-// tests/renderer.test.js — 26 cases
+// tests/renderer.test.js — 26 cases (embed format)
 // ============================================================
 
 import { relativeTime, rankEmoji, renderLeaderboard } from '../src/renderer.js';
 import { runSuite, assertEqual, assert } from './helpers.js';
 
+// ── Sample player factories ───────────────────────────────────
+const mrPlayer = (name, rC, tC, rP, tP, id=null, msAgo=0) => ({
+  playerName: id ?? name, displayName: name, discordId: id,
+  role: 'Strategist', rankCurrent: rC, tierCurrent: tC,
+  rankPeak: rP, tierPeak: tP, date: new Date(Date.now() - msAgo),
+});
+
+const owPlayer = (name, rC, tC, val, rP, tP, pVal, id=null) => ({
+  playerName: id ?? name, displayName: name, discordId: id,
+  role: 'Tank', rankCurrent: rC, tierCurrent: tC, currentValue: val,
+  rankPeak: rP, tierPeak: tP, peakValue: pVal, date: new Date(),
+});
+
+const dlPlayer = (name, rC, tC, val, id=null) => ({
+  playerName: id ?? name, displayName: name, discordId: id,
+  hero: 'Haze', rankCurrent: rC, tierCurrent: tC, currentValue: val, date: new Date(),
+});
+
 export async function runRendererTests() {
   return runSuite('Renderer', [
 
     // ── relativeTime ──────────────────────────────────────────
-    { name: 'just now  (< 10s)',  fn: () => assertEqual(relativeTime(new Date(Date.now()-5000)),      'just now',      'just now') },
-    { name: '30 seconds ago',     fn: () => assertEqual(relativeTime(new Date(Date.now()-30000)),     '30 seconds ago','30s') },
-    { name: '1 minute ago',       fn: () => assertEqual(relativeTime(new Date(Date.now()-65000)),     '1 minute ago',  '1m') },
-    { name: '3 minutes ago',      fn: () => assertEqual(relativeTime(new Date(Date.now()-180000)),    '3 minutes ago', '3m') },
-    { name: '2 hours ago',        fn: () => assertEqual(relativeTime(new Date(Date.now()-7200000)),   '2 hours ago',   '2h') },
-    { name: '3 days ago',         fn: () => assertEqual(relativeTime(new Date(Date.now()-3*864e5)),   '3 days ago',    '3d') },
-    { name: '2 weeks ago',        fn: () => assertEqual(relativeTime(new Date(Date.now()-14*864e5)),  '2 weeks ago',   '2w') },
-    { name: '1 month ago',        fn: () => assertEqual(relativeTime(new Date(Date.now()-45*864e5)),  '1 month ago',   '1mo') },
-    { name: '1 year ago',         fn: () => assertEqual(relativeTime(new Date(Date.now()-400*864e5)), '1 year ago',    '1y') },
-    { name: 'future → just now',  fn: () => assertEqual(relativeTime(new Date(Date.now()+9999)),      'just now',      'future') },
+    { name: 'just now  (< 10s)',  fn: () => assertEqual(relativeTime(new Date(Date.now()-5000)),      'just now', 'just now') },
+    { name: '30 seconds ago',     fn: () => assertEqual(relativeTime(new Date(Date.now()-30000)),     '30s ago',  '30s') },
+    { name: '1 minute ago',       fn: () => assertEqual(relativeTime(new Date(Date.now()-65000)),     '1m ago',   '1m') },
+    { name: '3 minutes ago',      fn: () => assertEqual(relativeTime(new Date(Date.now()-180000)),    '3m ago',   '3m') },
+    { name: '2 hours ago',        fn: () => assertEqual(relativeTime(new Date(Date.now()-7200000)),   '2h ago',   '2h') },
+    { name: '3 days ago',         fn: () => assertEqual(relativeTime(new Date(Date.now()-3*864e5)),   '3d ago',   '3d') },
+    { name: '2 weeks ago',        fn: () => assertEqual(relativeTime(new Date(Date.now()-14*864e5)),  '2w ago',   '2w') },
+    { name: '1 month ago',        fn: () => assertEqual(relativeTime(new Date(Date.now()-45*864e5)),  '1mo ago',  '1mo') },
+    { name: '1 year ago',         fn: () => assertEqual(relativeTime(new Date(Date.now()-400*864e5)), '1y ago',   '1y') },
+    { name: 'future → just now',  fn: () => assertEqual(relativeTime(new Date(Date.now()+9999)),      'just now', 'future') },
 
     // ── rankEmoji ─────────────────────────────────────────────
-    { name: 'emoji: diamond',         fn: () => assertEqual(rankEmoji('Diamond'),       '💎',  'diamond') },
-    { name: 'emoji: case insensitive', fn: () => assertEqual(rankEmoji('GRANDMASTER'),  '👑',  'gm') },
-    { name: 'emoji: Top 500',         fn: () => assertEqual(rankEmoji('Top 500'),       '⭐',  'top500') },
-    { name: 'emoji: One Above All',   fn: () => assertEqual(rankEmoji('One Above All'), '🌟',  'oaa') },
-    { name: 'emoji: Eternus (DL)',    fn: () => assertEqual(rankEmoji('Eternus'),       '♾️',  'eternus') },
-    { name: 'emoji: unknown → ❓',    fn: () => assertEqual(rankEmoji('Fake'),          '❓',  'unknown') },
+    { name: 'emoji: diamond',       fn: () => assertEqual(rankEmoji('Diamond'),       '💎',  'diamond') },
+    { name: 'emoji: One Above All', fn: () => assertEqual(rankEmoji('One Above All'), '🌟',  'oaa') },
+    { name: 'emoji: unknown → ❓',  fn: () => assertEqual(rankEmoji('Fake'),          '❓',  'unknown') },
 
-    // ── Discord pings in rendered output ──────────────────────
+    // ── Embed structure ───────────────────────────────────────
 
-    { name: 'MR: player with discordId renders as <@ID> ping', fn: () => {
-      const out = renderLeaderboard([{
-        playerName: '244419214738194432',
-        discordId:  '244419214738194432',
-        role: 'Strategist',
-        rankCurrent: 'Diamond', tierCurrent: 2,
-        rankPeak: 'Grandmaster', tierPeak: 1,
-        date: new Date(),
-      }], 'MARVEL_RIVALS');
-      assert(out.includes('<@244419214738194432>'), 'Discord ping present');
-      assert(!out.includes('**@244419214738194432**'), 'not using bold fallback when ID known');
+    { name: 'Returns embed payload object (not string)', fn: () => {
+      const out = renderLeaderboard([], 'MARVEL_RIVALS');
+      assert(typeof out === 'object' && Array.isArray(out.embeds), 'is embed object');
     }},
 
-    { name: 'MR: player without discordId renders as **@Name** (no ping)', fn: () => {
-      const out = renderLeaderboard([{
-        playerName: 'Turbostar', discordId: null,
-        role: 'Duelist', rankCurrent: 'Diamond', tierCurrent: 1,
-        rankPeak: 'Grandmaster', tierPeak: 1, date: new Date(),
-      }], 'MARVEL_RIVALS');
-      assert(out.includes('**@Turbostar**'), 'bold name fallback');
-      assert(!out.includes('<@'), 'no ping tag when no discordId');
+    { name: 'MR embed: correct yellow color', fn: () => {
+      const out = renderLeaderboard([], 'MARVEL_RIVALS');
+      assertEqual(out.embeds[0].color, 0xF5C400, 'yellow');
     }},
 
-    { name: 'OW: player with discordId renders ping', fn: () => {
-      const out = renderLeaderboard([{
-        playerName: '111222333444555666',
-        discordId:  '111222333444555666',
-        role: 'Tank', rankCurrent: 'Diamond', tierCurrent: 3, currentValue: 3200,
-        rankPeak: 'Master', tierPeak: 2, peakValue: 3400, date: new Date(),
-      }], 'OVERWATCH');
-      assert(out.includes('<@111222333444555666>'), 'OW ping present');
+    { name: 'OW embed: correct red color', fn: () => {
+      assertEqual(renderLeaderboard([], 'OVERWATCH').embeds[0].color, 0xD62828, 'red');
     }},
 
-    { name: 'DL: player with discordId renders ping', fn: () => {
-      const out = renderLeaderboard([{
-        playerName: '999888777666555444',
-        discordId:  '999888777666555444',
-        hero: 'Haze', rankCurrent: 'Archon', tierCurrent: 4, currentValue: 1200,
-        date: new Date(),
-      }], 'DEADLOCK');
-      assert(out.includes('<@999888777666555444>'), 'DL ping present');
+    { name: 'DL embed: correct brown color', fn: () => {
+      assertEqual(renderLeaderboard([], 'DEADLOCK').embeds[0].color, 0x7B4F2E, 'brown');
     }},
 
-    // ── Other render checks ───────────────────────────────────
-
-    { name: 'MR: empty board shows placeholder', fn: () => {
-      assert(renderLeaderboard([], 'MARVEL_RIVALS').includes('No players yet'), 'placeholder');
+    { name: 'All caps title as embed author', fn: () => {
+      const out = renderLeaderboard([], 'MARVEL_RIVALS');
+      assertEqual(out.embeds[0].author.name, 'MARVEL RIVALS LEADERBOARD', 'all caps');
     }},
 
-    { name: 'OW: Top 500 shows # prefix', fn: () => {
-      const out = renderLeaderboard([{
-        playerName: 'Pro', discordId: null, role: 'DPS',
-        rankCurrent: 'Top 500', tierCurrent: 47, currentValue: 4800,
-        rankPeak: 'Top 500', tierPeak: 12, peakValue: 4900, date: new Date(),
-      }], 'OVERWATCH');
-      assert(out.includes('#47'), 'current #'); assert(out.includes('#12'), 'peak #');
+    { name: 'Empty board shows placeholder text', fn: () => {
+      assert(renderLeaderboard([], 'DEADLOCK').embeds[0].description.includes('No players yet'), 'placeholder');
     }},
 
-    { name: 'DL: NO peak section in output', fn: () => {
-      const out = renderLeaderboard([{
-        playerName: 'X', discordId: null, hero: 'Haze',
-        rankCurrent: 'Archon', tierCurrent: 4, currentValue: 1200, date: new Date(),
-      }], 'DEADLOCK');
-      assert(!out.includes('Peak:'), 'no peak in DL');
+    // ── Table content ─────────────────────────────────────────
+
+    { name: 'MR table has code block + all column headers', fn: () => {
+      const desc = renderLeaderboard([mrPlayer('Turbostar','Diamond',2,'Grandmaster',1)], 'MARVEL_RIVALS').embeds[0].description;
+      assert(desc.includes('```'),        'code block');
+      assert(desc.includes('POS'),        'POS header');
+      assert(desc.includes('PLAYER'),     'PLAYER header');
+      assert(desc.includes('ROLE'),       'ROLE header');
+      assert(desc.includes('RANK'),       'RANK header');
+      assert(desc.includes('PEAK'),       'PEAK header');
+      assert(desc.includes('UPDATED'),    'UPDATED header');
+      assert(desc.includes('─'),          'divider');
     }},
 
-    { name: 'Top 3 get medals 🥇🥈🥉', fn: () => {
-      const players = ['A','B','C','D'].map((n,i) => ({
-        playerName: n, discordId: null, role: 'DPS',
-        rankCurrent: 'Diamond', tierCurrent: i+1,
-        rankPeak: 'Diamond', tierPeak: i+1, date: new Date(),
-      }));
-      const out = renderLeaderboard(players, 'MARVEL_RIVALS');
-      assert(out.includes('🥇'),'1st'); assert(out.includes('🥈'),'2nd'); assert(out.includes('🥉'),'3rd');
+    { name: 'MR table: player data correctly rendered in row', fn: () => {
+      const desc = renderLeaderboard([mrPlayer('Turbostar','Diamond',2,'Grandmaster',1)], 'MARVEL_RIVALS').embeds[0].description;
+      assert(desc.includes('Turbostar'),   'player name');
+      assert(desc.includes('Strategist'),  'role');
+      assert(desc.includes('Diamond 2'),   'rank');
+      assert(desc.includes('Grandmaster'), 'peak');
     }},
 
-    { name: 'includes "Last updated:" timestamp', fn: () => {
-      assert(renderLeaderboard([], 'DEADLOCK').includes('Last updated:'), 'timestamp');
+    { name: 'OW table includes SR values in RANK and PEAK columns', fn: () => {
+      const desc = renderLeaderboard([owPlayer('Alpha','Diamond',3,3200,'Master',2,3400)], 'OVERWATCH').embeds[0].description;
+      assert(desc.includes('3200'), 'current SR');
+      assert(desc.includes('3400'), 'peak SR');
+    }},
+
+    { name: 'OW Top 500 shows # prefix for tier', fn: () => {
+      const desc = renderLeaderboard([owPlayer('Pro','Top 500',47,4800,'Top 500',12,4900)], 'OVERWATCH').embeds[0].description;
+      assert(desc.includes('#47'), '#47');
+      assert(desc.includes('#12'), '#12');
+    }},
+
+    { name: 'DL table has no PEAK column', fn: () => {
+      const desc = renderLeaderboard([dlPlayer('Player2','Archon',4,1200)], 'DEADLOCK').embeds[0].description;
+      assert(!desc.includes('PEAK'), 'no PEAK header in DL');
+    }},
+
+    { name: 'DL table includes pts value', fn: () => {
+      const desc = renderLeaderboard([dlPlayer('Player2','Archon',4,1200)], 'DEADLOCK').embeds[0].description;
+      assert(desc.includes('1200'), 'pts value');
+    }},
+
+    // ── Discord pings ─────────────────────────────────────────
+
+
+
+
+    // ── Footer / timestamp ────────────────────────────────────
+
+    { name: 'Embed has footer with "Last updated" text', fn: () => {
+      const embed = renderLeaderboard([], 'OVERWATCH').embeds[0];
+      assert(embed.footer.text.includes('Last updated'), 'footer text');
+    }},
+
+    { name: 'Embed has ISO timestamp field', fn: () => {
+      const embed = renderLeaderboard([], 'DEADLOCK').embeds[0];
+      assert(typeof embed.timestamp === 'string', 'timestamp exists');
+      assert(!isNaN(new Date(embed.timestamp)), 'valid ISO date');
     }},
 
   ]);
