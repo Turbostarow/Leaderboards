@@ -73,10 +73,6 @@ export async function deleteMessage(msg, retries = 3) {
 
 // ── Pinned state messages (private #lb-update channel) ────────
 
-/**
- * Find the pinned state message for a game.
- * Returns { id, content } or null.
- */
 export async function fetchStateMessage(channelId, game) {
   const channel = await client.channels.fetch(channelId);
   const pinned  = await channel.messages.fetchPinned();
@@ -90,9 +86,6 @@ export async function fetchStateMessage(channelId, game) {
   return { id: found.id, content: found.content };
 }
 
-/**
- * Create a new pinned state message in the listening channel.
- */
 export async function createStateMessage(channelId, content) {
   const channel = await client.channels.fetch(channelId);
   const msg     = await channel.send(content);
@@ -100,14 +93,11 @@ export async function createStateMessage(channelId, content) {
     await msg.pin();
     console.log(`[discord] Pinned new state message: ${msg.id}`);
   } catch (err) {
-    console.error(`[discord] Failed to pin state message — bot needs Manage Messages in #lb-update:`, err.message);
+    console.error(`[discord] Failed to pin — bot needs Manage Messages in #lb-update:`, err.message);
   }
   return msg;
 }
 
-/**
- * Edit an existing pinned state message.
- */
 export async function updateStateMessage(channelId, messageId, content) {
   const channel = await client.channels.fetch(channelId);
   const msg     = await channel.messages.fetch(messageId);
@@ -116,22 +106,25 @@ export async function updateStateMessage(channelId, messageId, content) {
 }
 
 // ── Webhook operations ────────────────────────────────────────
+//
+// `payload` can be:
+//   - a string  → sent as { content: "..." }   (state/debug messages)
+//   - an object → sent as-is                   (embed payloads from renderer)
 
-export async function fetchWebhookMessage(webhookUrl, messageId) {
-  if (!messageId) return null;
-  const { id, token } = parseWebhook(webhookUrl);
-  const res = await fetchWithBackoff(`https://discord.com/api/v10/webhooks/${id}/${token}/messages/${messageId}`, { method: 'GET' });
-  if (res.status === 404) return null;
-  if (!res.ok) { console.error(`[discord] fetchWebhookMessage: HTTP ${res.status}`); return null; }
-  const data = await res.json();
-  return data.content ?? '';
+function buildBody(payload) {
+  if (typeof payload === 'string') {
+    const s = payload.length <= 2000 ? payload : payload.slice(0, 1985) + '\n…*(truncated)*';
+    return JSON.stringify({ content: s });
+  }
+  // Embed payload — validate total size stays under Discord's 6000 char limit
+  return JSON.stringify(payload);
 }
 
-export async function postWebhookMessage(webhookUrl, content) {
+export async function postWebhookMessage(webhookUrl, payload) {
   const { id, token } = parseWebhook(webhookUrl);
   const res = await fetchWithBackoff(
     `https://discord.com/api/v10/webhooks/${id}/${token}?wait=true`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: cap(content) }) }
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildBody(payload) }
   );
   if (!res.ok) throw new Error(`postWebhookMessage: HTTP ${res.status} — ${await res.text()}`);
   const data = await res.json();
@@ -139,11 +132,11 @@ export async function postWebhookMessage(webhookUrl, content) {
   return data.id;
 }
 
-export async function editWebhookMessage(webhookUrl, messageId, content) {
+export async function editWebhookMessage(webhookUrl, messageId, payload) {
   const { id, token } = parseWebhook(webhookUrl);
   const res = await fetchWithBackoff(
     `https://discord.com/api/v10/webhooks/${id}/${token}/messages/${messageId}`,
-    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: cap(content) }) }
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: buildBody(payload) }
   );
   if (!res.ok) throw new Error(`editWebhookMessage: HTTP ${res.status} — ${await res.text()}`);
   console.log(`[discord] Edited webhook message: ${messageId}`);
@@ -156,11 +149,6 @@ function parseWebhook(url) {
   const m = url.match(/webhooks\/(\d+)\/([A-Za-z0-9_\-.]+)/);
   if (!m) throw new Error(`Invalid webhook URL: ${url}`);
   return { id: m[1], token: m[2] };
-}
-
-function cap(s) {
-  if (s.length <= 2000) return s;
-  return s.slice(0, 1985) + '\n…*(truncated)*';
 }
 
 export function sleep(ms) {

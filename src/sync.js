@@ -83,8 +83,11 @@ async function main() {
 
       if (!parsed) {
         skipped++;
-        const preview   = msg.content.slice(0, 100).replace(/\n/g, '↵');
-        const hasPrefix = /^LB_(UPDATE|DELETE)_(MR|OW|DL):/i.test(msg.content.trim());
+        const t = msg.content.trim();
+        // LB_STATE messages are pinned state blobs living in the channel — silently ignore
+        if (/^LB_STATE:(MARVEL_RIVALS|OVERWATCH|DEADLOCK):/.test(t)) continue;
+        const preview   = t.slice(0, 100).replace(/\n/g, '↵');
+        const hasPrefix = /^LB_(UPDATE|DELETE)_(MR|OW|DL):/i.test(t);
         if (hasPrefix) {
           console.warn(`[sync] ⚠️  PARSE FAILED (has prefix but validation failed):`);
           console.warn(`         "${preview}"`);
